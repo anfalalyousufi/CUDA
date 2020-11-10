@@ -20,7 +20,7 @@ It is compiled using nvcc
 
 nvcc is the NVIDIA CUDA Compiler
 
-__ mant GPU special keywords have (underscore underscore) before them which shows it is a kernel that runs on the device so it runs on the GPU. But, you call it from the host and launches this function on the device
+__ : GPU special keywords have (underscore underscore) before them which shows it is a kernel that runs on the device so it runs on the GPU. But, you call it from the host and launches this function on the device
 __global__ specifies the function is a kernel, which means it is invoked by the CPU and executed on the GPU
 __device__ specifies the function is invoked by and executed on the GPU
 __host__ specifies the function is invoked by and executed on the CPU

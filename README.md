@@ -1,5 +1,132 @@
 # CUDA
 
+# What is CUDA?
+It is the C/C++ interface to the CUDA parallel computing platform. It is an extension of C and helps provides an API which interfaces with the GPU. Hence, CUDA enables writing to as acceleration, offloading computationally expensive work to the GPU which has thousands of core, not multiple like CPU does.
+When assigning work to GPU, it is often assigned in a grid of clocks and blocks of threads. Due to the fact that memory must be copied to and from the device (GPU) this happens to slow down some operations and introduces difficulties while programming. In addition, it is important to understand that cores in a block run in lockstep. Which means opertions such as jumps permitted by highly discouraged.
+We will use CUDA C which is essentially C/C++ with a few extensions that allows one to execute functions on the GPU using many threads in paralle.
+
+# Terminology
+When we talk about blocks, threads, and grids we are simply talking about ways to split up work which is to be processed by the GPU.
+In terms of the hierarchy, threads make up a block and blocks make up a grid. A grid would execute on the GPU which is composed of many multi-processors. Every multiprocessor is responsible fo rexecuting one or more of the blocks in the grid. Multiprocessors consists of many stream processors, which is then responsible for running one or more of the threads in the block.
+
+If we are going to talk about the purpose of grids and blocks, these units are important to undestand so maximum utilization can be acheieved of the cores on the GPU. Each card is different in its architecture such as the number of multiprocessors and the number of stream processors per multiprocessor), hence it is very importnant to know what architecture someone is targeting or have programmatic means of determining how many threads to execute per block.
+
+# What is a kernel?
+Kernel is a function that is invoked by the host (CPU) and executed on the device (GPU). They are simultaneously executed accross potentially hundreds or thousands of cores at once, and must use the provided variables to determine their unique range of memoty and mutate.
+
+# Syntax
+CUDA source code is stored in .cu files
+It is compiled using nvcc 
+
+nvcc is the NVIDIA CUDA Compiler
+
+__ mant GPU special keywords have (underscore underscore) before them which shows it is a kernel that runs on the device so it runs on the GPU. But, you call it from the host and launches this function on the device
+__global__ specifies the function is a kernel, which means it is invoked by the CPU and executed on the GPU
+__device__ specifies the function is invoked by and executed on the GPU
+__host__ specifies the function is invoked by and executed on the CPU
+kernel<<<blocks,threads>>>();  syntax way in calling the kernel, this tells the compiler something about the way parallelism is built, such as it is built in two layers: layers of thread and layer of block
+
+
+# First CUDA Program
+
+load the CUDA module on the node: module load apps/cuda/7.5
+run executable name to tell you all about the card: deviceQuery
+text editor: vi
+name of the file: helloworld.cu
+to exist the file: esc : wq
+compile: nvcc helloworld.cu -o hello
+run: ./hello
+
+----------------------
+##Example 1:
+#include <stdio.h>
+
+//mykernel: kernel that runs in parallel on the CPU
+__global__
+void mykernel(void){
+}
+
+
+//main: host code
+int main(void){
+        mykernel<<<1,1>>>(); 
+        printf("Hello  World!\n");
+        return 0;
+}
+
+-----------------------
+##Example 2:
+#include <stdio.h>
+
+//device code : kernel code: execute by multiple threads in parallel
+// n,a,i variables will be stored by each thread in a register
+// pointers x and y: must be pointer to the device memory address space.
+__global__
+void saxpy(int n, float a, float *x, float *y) //saxpy is the kernel that runs in parallel on the GPU
+{
+  // predefined variables [blockDim: contains dimensions of each thread block for kernel launch] [threadIdx and blockIdx: contain the index of the thread within its thread block and the thread block within the grid]
+  // and the built-in device variables blockDim, blockIdx, and threadIdx used to identify and differentiate GPU threads that execute the kernel in parallel.
+  int i = blockIdx.x*blockDim.x + threadIdx.x; // generated a global index that is used to access elements of the arrays
+  if (i < n) y[i] = a*x[i] + y[i]; //performs the element-wise work of the SAXPY, and other than the bounds check, it is identical to the inner loop of a host implementation of SAXPY 
+}
+
+int main(void) //main function is the host code
+{
+  int N = 1<<20;
+  float *x, *y, *d_x, *d_y; //passed d_x and d_y to the kernel when we launched to the device in host code
+  
+  //declares two pair of arrays
+  x = (float*)malloc(N*sizeof(float)); //pointer x: points to the host array, allocated with malloc 
+  y = (float*)malloc(N*sizeof(float));
+
+  cudaMalloc(&d_x, N*sizeof(float)); //d_x array point to the device array allocated with the cudaMalloc function from CUDA runtime API
+  cudaMalloc(&d_y, N*sizeof(float));
+
+  //the host code then initializes the host array
+  for (int i = 0; i < N; i++) {
+    x[i] = 1.0f; // setting x to an array of ones
+    y[i] = 2.0f; // setting y to an array of twos
+  }
+  
+  // to initialize the device arrays, we simply copy the data from x and y to the corresponding device arrayd d_x and d_y using cudaMemcpy
+  cudaMemcpy(d_x, x, N*sizeof(float), cudaMemcpyHostToDevice);  // use cudaMemcpyHostToDevice to specify that the first (destination) argument is a device pointer and the second (source) argument is a host pointer
+  cudaMemcpy(d_y, y, N*sizeof(float), cudaMemcpyHostToDevice);
+
+  // Perform SAXPY on 1M elements
+  // informaiton between triple chevrons is the execution configuration, which dictates how many device threads execute the kernel in parallel
+  // The first argument in the execution configuration specifies the number of thread blocks in the grid, and the second specifies the number of threads in a thread block.
+  saxpy<<<(N+255)/256, 256>>>(N, 2.0f, d_x, d_y); // saxpy kernel is launched by this statement
+
+  //after running the kernel, to get the results back to the host, we copy from the device array pointed to d_y to the host array pointed by y using cudaMemcpy with cudaMemcpyDeviceToHost
+  cudaMemcpy(y, d_y, N*sizeof(float), cudaMemcpyDeviceToHost); 
+
+  float maxError = 0.0f;
+  for (int i = 0; i < N; i++)
+    maxError = max(maxError, abs(y[i]-4.0f));
+  printf("Max error: %f\n", maxError);
+
+
+  //after we finish, we should free any allocated memory.
+  cudaFree(d_x); //for device memory allocated with cudaMalloc(), simply call cudaFree()
+  cudaFree(d_y);
+  free(x); //for host memory, use free() as usual
+  free(y);
+}
+
+## Summary and Conclusions
+Here are only a few extensions to C required to “port” a C code to CUDA C: the __global__ declaration specifier for device kernel functions; the execution configuration used when launching a kernel; and the built-in device variables blockDim, blockIdx, and threadIdx used to identify and differentiate GPU threads that execute the kernel in parallel.
+
+One advantage of the heterogeneous CUDA programming model is that porting an existing code from C to CUDA C can be done incrementally, one kernel at a time.
+
+
+
+References:
+1)https://medium.com/@timer150/introduction-to-cuda-c038b85c35ba
+2) https://developer.nvidia.com/blog/easy-introduction-cuda-c-and-c/#:~:text=In%20CUDA%2C%20the%20host%20refers,functions%20executed%20on%20the%20device.
+
+
+-----------------------------------------
+
 ## Project 1 
 This  project  is  about  computing  spatial  distance  histogram  (SDH)  of  a  collection  of  3D  points.The SDH problem can be formally described as follows:  given the coordinates ofNparticles (e.g.,atoms, stars, moving objects in different applications) and a user-defined distancew, we need tocompute the number of particle-to-particle distances falling into a series of ranges (named buckets)of  widthw:  [0, w),[w,2w), . . . ,[(l−1)w, lw].   Essentially,  the  SDH  provides  an  ordered  list  ofnon-negative integersH= (h0, h1, . . . , hl−1), where eachhi(0≤i < l) is the number of distancesfalling into the bucket [iw,(i+ 1)w).  Clearly, the bucket widthwis a key parameter of an SDH tobe computed.2  Getting StartedFor you to get started, we have written a C program to compute SDH. The attached fileSDH.cushows a sample program for CPUs and serves as the starting point of your coding in this project.Interesting thing is that you can still compile and run it under the CUDA environment.  Specifically,you can type the following command to compile it.nvcc SDH.cu -o SDHTo run the code, you add the following line to your testing script file:./SDH 10000 500.0Note that the executable takes two arguments, the first one is the total number of data points andthe second one is the bucket width (w) in the histogram to be computed.  We strongly suggest youcompile and run this piece of code before you start coding.3  Tasks to PerformYou have to write a CUDA program to implement the same functionality as shown in the CPUprogram.  Both CUDA kernel function and CPU function results should be displayed as output.Write a CUDA kernel that computes the distance counts in all buckets of the SDH, by makingeach thread work on one input data point.  After all the points are processed, the resulting SDHshould be copied back to a host data structure.1.  Transfer the input data array (i.e., atomlist as shown in the sample code) onto GPU deviceusing CUDA functions.2.  Write a kernel function to compute the distance between one point to all other points andupdate the histogram accordingly.  Note that between any two points there should be onlyone distance counted.1
 3.  Copy the final histogram from the GPU back to the host side and output them in the sameformat as we did for the CPU results.4.  Compare this histogram with the one you computed using CPU bucket by bucket.  Outputany differences between them - this should be done by printing out a histogram with the samenumber of buckets as the original ones except each bucket contains the difference in countsof the corresponding buckets.Note that the output of your program should only contain the following: 
